@@ -1,17 +1,1 @@
-
-# Python
-__pycache__/
-*.pyc
-
-# Environments
-.env
-.env.*
-venv/
-.venv/
-
-# Logs
-logs/
-
-# OS junk
-.DS_Store
-
+# Git ignore file
