@@ -1,5 +1,3 @@
-# Requirements
-"""Set up via pip install -r requirements.txt"""
 torch
 torch-geometric
 pandas
@@ -9,3 +7,4 @@ matplotlib
 plotly
 tqdm
 python-dotenv
+pyyaml
