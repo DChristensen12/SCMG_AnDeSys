@@ -1,1 +1,11 @@
 # Requirements
+"""Set up via pip install -r requirements.txt"""
+torch
+torch-geometric
+pandas
+numpy
+scikit-learn
+matplotlib
+plotly
+tqdm
+python-dotenv

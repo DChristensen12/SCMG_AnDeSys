@@ -1,1 +1,16 @@
 # config settings
+model_architecture:
+  hidden_dim: 16
+  gnn_layers: 1
+  temporal_layers: 1
+  dropout: 0.1
+  gnn_type: "GCN"
+
+training:
+  epochs: 10
+  batch_size: 128
+  learning_rate: 0.001
+
+detection:
+  threshold_percentile: 99
+  rain_multiplier: 2.0

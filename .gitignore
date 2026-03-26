@@ -1,1 +1,28 @@
 # Git ignore file
+# --- Python Environment --- #
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# --- Data & Large Files --- #
+# Ignore the actual data files (keep the structure, hide the content)
+data/raw/*.csv
+data/processed/*.csv
+data/targets/*.csv
+*.csv
+*.ipynb_checkpoints
+
+# --- Model Weights & Logs --- #
+*.pt
+*.pth
+logs/
+*.log
+
+# --- IDE & System --- #
+.vscode/
+.idea/
+.DS_Store
