@@ -1,7 +1,12 @@
+import matplotlib
+# MUST be called before importing pyplot to run without a display
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+import os
+from datetime import datetime
 
 def plot_static_dashboard(
     timestamps, 
@@ -16,7 +21,7 @@ def plot_static_dashboard(
     threshold_percentile
 ):
     """
-    Generates the high-resolution Matplotlib dashboard.
+    Generates and SAVES the high-resolution Matplotlib dashboard.
     """
     spills_during_rain = spill_flags & rain_flags
     spills_no_rain = spill_flags & ~rain_flags
@@ -50,7 +55,9 @@ def plot_static_dashboard(
 
     # Rain timeline
     ax2 = fig.add_subplot(gs[1, :])
-    rain_ts = df_original.loc[timestamps[0]:timestamps[-1]][df_original['location'] == locations[0]]['rain_mm']
+    # Filter by time range and location to get rain data
+    mask = (df_original.index >= timestamps[0]) & (df_original.index <= timestamps[-1]) & (df_original['location'] == locations[0])
+    rain_ts = df_original.loc[mask]['rain_mm']
     ax2.bar(rain_ts.index, rain_ts.values, width=0.01, color='cyan', alpha=0.7)
     ax2.set_ylabel('Rain (mm)', fontweight='bold')
 
@@ -69,7 +76,22 @@ def plot_static_dashboard(
     ax4.set_title('Raw Conductivity Data', fontsize=12, fontweight='bold')
 
     plt.suptitle('SCMG System Results', fontsize=16, fontweight='bold', y=0.995)
-    plt.show()
+
+    # --- SAVE LOGIC ---
+    report_dir = "reports"
+    if not os.path.exists(report_dir):
+        os.makedirs(report_dir)
+
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Save a history file and a 'latest' file for easy checking
+    plt.savefig(os.path.join(report_dir, f"report_{timestamp_str}.png"), bbox_inches='tight', dpi=150)
+    plt.savefig(os.path.join(report_dir, "latest_report.png"), bbox_inches='tight', dpi=150)
+    
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Dashboard saved to {report_dir}/")
+    
+    # Clean up memory
+    plt.close('all')
 
 
 def plot_interactive_plotly(
@@ -84,15 +106,14 @@ def plot_interactive_plotly(
     threshold_percentile
 ):
     """
-    Generates the interactive Plotly visualization.
+    Saves the interactive Plotly visualization as an HTML file.
+    Note: plotly.show() usually won't work in a background loop.
     """
     fig_plotly = go.Figure()
 
-    # Base traces
     fig_plotly.add_trace(go.Scatter(x=timestamps, y=system_anomaly_scores, name='Anomaly Score', line=dict(color='royalblue')))
     fig_plotly.add_trace(go.Scatter(x=timestamps, y=adjusted_thresholds, name='Adjusted Threshold', line=dict(color='darkorange', dash='dash')))
 
-    # Add Spills
     spills_during_rain = spill_flags & rain_flags
     spills_no_rain = spill_flags & ~rain_flags
     
@@ -108,4 +129,9 @@ def plot_interactive_plotly(
         height=600
     )
     
-    fig_plotly.show()
+    # Save as HTML so we can open it in a browser later
+    report_dir = "reports"
+    if not os.path.exists(report_dir):
+        os.makedirs(report_dir)
+        
+    fig_plotly.write_html(os.path.join(report_dir, "interactive_dashboard.html"))
