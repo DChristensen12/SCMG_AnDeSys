@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 import sys
+import pickle
 from config.config import Config
 from src.ingest.data_loader import load_and_preprocess_data
 from src.utils.graph_utils import create_graph_topology
@@ -9,9 +10,8 @@ from src.preprocessing.data_processor import prepare_sequences_normalized
 from src.models.model import TemporalGNN
 from src.training.trainer import train_temporal_gnn
 from src.anomalies.anomaly_detector import compute_anomaly_scores, detect_spills_with_rain_adjustment
-from src.utils.visualizations import plot_static_dashboard
 
-def main(mode="update"):
+def main(mode="update", data_source="api", visualize=False):
     """
     Control logic for the GNN pipeline.
     """
@@ -25,18 +25,22 @@ def main(mode="update"):
     print(f"Execution Mode: {mode.upper()}")
     print(f"Device: {Config.DEVICE}")
     
-    # DATA LOADING LOGIC 
+    # DATA LOADING LOGIC
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring
-        df_featured, df_original, locations = load_and_preprocess_data(force_download=True, days=2)
+        df_featured, df_original, locations = load_and_preprocess_data(
+            force_download=True, days=2, data_source=data_source
+        )
     else:
         # Pull 30 days for training/updating
-        df_featured, df_original, locations = load_and_preprocess_data(force_download=False, days=30)
+        df_featured, df_original, locations = load_and_preprocess_data(
+            force_download=False, days=30, data_source=data_source
+        )
     # ----------------------------------
     
     edge_index, _, location_to_idx = create_graph_topology()
     
-    sequences, targets, timestamps, scaler = prepare_sequences_normalized(
+    sequences, targets, timestamps, scaler, feature_cols = prepare_sequences_normalized(
         df_featured, 
         location_to_idx, 
         Config.SEQUENCE_LENGTH
@@ -75,6 +79,14 @@ def main(mode="update"):
         )
         torch.save(model.state_dict(), model_path)
         print(f"Optimization complete. Weights saved to {model_path}")
+        metadata_path = os.path.join(model_dir, "model_metadata.pkl")
+        with open(metadata_path, "wb") as f:
+            pickle.dump({
+                "scaler": scaler,
+                "feature_cols": feature_cols,
+                "location_to_idx": location_to_idx,
+            }, f)
+        print(f"Model metadata saved to {metadata_path}")
     else:
         print("Skipping training phase. Entering evaluation mode.")
 
@@ -99,19 +111,33 @@ def main(mode="update"):
     base_threshold = np.percentile(system_scores, Config.THRESHOLD_PERCENTILE)
     spill_count = np.sum(spill_flags)
     print(f"Detection cycle finished. Anomalies identified: {spill_count}")
-    
-    plot_static_dashboard(
-        timestamps=test_timestamps,
-        system_anomaly_scores=system_scores,
-        normalized_anomaly_scores=errors,
-        adjusted_thresholds=adjusted_thresholds,
-        base_threshold=base_threshold,
-        spill_flags=spill_flags,
-        rain_flags=rain_flags,
-        df_original=df_original,
-        locations=locations,
-        threshold_percentile=Config.THRESHOLD_PERCENTILE
-    )
+
+    if visualize:
+        from src.utils.visualizations import plot_static_dashboard, plot_interactive_plotly
+        plot_static_dashboard(
+            timestamps=test_timestamps,
+            system_anomaly_scores=system_scores,
+            normalized_anomaly_scores=errors,
+            adjusted_thresholds=adjusted_thresholds,
+            base_threshold=base_threshold,
+            spill_flags=spill_flags,
+            rain_flags=rain_flags,
+            df_original=df_original,
+            locations=locations,
+            threshold_percentile=Config.THRESHOLD_PERCENTILE
+        )
+        if mode != "inference":
+            plot_interactive_plotly(
+                timestamps=test_timestamps,
+                system_anomaly_scores=system_scores,
+                adjusted_thresholds=adjusted_thresholds,
+                base_threshold=base_threshold,
+                spill_flags=spill_flags,
+                rain_flags=rain_flags,
+                rain_threshold_multiplier=Config.RAIN_THRESHOLD_MULTIPLIER,
+                rain_window_hours=Config.RAIN_WINDOW_HOURS,
+                threshold_percentile=Config.THRESHOLD_PERCENTILE
+            )
 
     if mode == "inference" and spill_count > 0:
         try:
@@ -127,23 +153,13 @@ def main(mode="update"):
         except Exception as e:
             print(f"Alerting failed: {e}")
 
-    if mode != "inference":
-        from src.utils.visualizations import plot_interactive_plotly
-        plot_interactive_plotly(
-            timestamps=test_timestamps,
-            system_anomaly_scores=system_scores,
-            adjusted_thresholds=adjusted_thresholds,
-            base_threshold=base_threshold,
-            spill_flags=spill_flags,
-            rain_flags=rain_flags,
-            rain_threshold_multiplier=Config.RAIN_THRESHOLD_MULTIPLIER,
-            rain_window_hours=Config.RAIN_WINDOW_HOURS,
-            threshold_percentile=Config.THRESHOLD_PERCENTILE
-        )
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="SCMG GNN Pipeline")
     parser.add_argument('--mode', type=str, default='update', choices=['train', 'update', 'inference'])
+    parser.add_argument('--data-source', type=str, default='api', choices=['api', 'sql'],
+                        help='Where to pull data from: REST API (default) or SQL database')
+    parser.add_argument('--visualize', action='store_true',
+                        help='Generate static and interactive plots after detection')
     args = parser.parse_args()
-    main(mode=args.mode)
+    main(mode=args.mode, data_source=args.data_source, visualize=args.visualize)

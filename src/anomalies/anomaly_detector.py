@@ -50,6 +50,20 @@ def detect_spills_with_rain_adjustment(
     2. Calculate a base threshold from the anomaly score distribution.
     3. Scale the threshold up during rain to account for natural runoff noise.
     """
+    # If rain data is absent (column not present or all NaN), skip rain adjustment entirely.
+    if 'rain_mm' not in df_original.columns or df_original['rain_mm'].isna().all():
+        print("[INFO] No rain_mm data available — running without rain adjustment.")
+        base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
+        adjusted_thresholds = np.full(len(timestamps), base_threshold)
+        spill_flags = system_anomaly_scores > adjusted_thresholds
+        rain_flags = np.zeros(len(timestamps), dtype=bool)
+        print(f"--- Detection Summary ---")
+        print(f"Total Spills Detected: {spill_flags.sum()}")
+        print(f"Rain-Affected Spills: 0 (no rain data)")
+        print(f"Dry-Weather Spills: {spill_flags.sum()}")
+        print(f"-------------------------\n")
+        return spill_flags, rain_flags, adjusted_thresholds
+
     # Extract Rain Data (Using the first location as the weather reference)
     rain_data = df_original[df_original['location'] == locations[0]][['rain_mm']].copy()
 

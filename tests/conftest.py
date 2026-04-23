@@ -1,0 +1,61 @@
+"""
+Shared fixtures for the SCMG anomaly-detection test suite.
+
+Requires a trained model before tests can run:
+    python main.py --mode train
+
+This produces:
+    models/gnn_weights.pt
+    models/model_metadata.pkl   ← scaler, feature_cols, location_to_idx
+"""
+
+import pickle
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+ROOT = Path(__file__).parent.parent
+ANOMALY_DIR = ROOT / "data" / "anomalies"
+MODEL_DIR = ROOT / "models"
+
+
+@pytest.fixture(scope="session")
+def model_metadata():
+    path = MODEL_DIR / "model_metadata.pkl"
+    if not path.exists():
+        pytest.skip(
+            "No model_metadata.pkl found. "
+            "Run 'python main.py --mode train' first to generate models/."
+        )
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
+@pytest.fixture(scope="session")
+def trained_model(model_metadata):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from src.models.model import TemporalGNN
+    from config.config import Config
+
+    weights_path = MODEL_DIR / "gnn_weights.pt"
+    if not weights_path.exists():
+        pytest.skip("No gnn_weights.pt found.")
+
+    num_features = len(model_metadata["feature_cols"])
+    model = TemporalGNN(num_node_features=num_features).to(Config.DEVICE)
+    model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE))
+    model.eval()
+    return model
+
+
+@pytest.fixture(scope="session")
+def edge_index(model_metadata):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from src.utils.graph_utils import create_graph_topology
+
+    ei, _, _ = create_graph_topology()
+    return ei
