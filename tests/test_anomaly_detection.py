@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 from config.config import Config
 
 ANOMALY_DIR = ROOT / "data" / "anomalies"
+NORMAL_DIR  = ROOT / "data" / "normal"
 
 # Maps the short suffix used in file names to Config.LOCATIONS station names.
 STATION_MAP = {
@@ -88,7 +89,8 @@ EVENT_CATALOG = [
     ("anomaly_2025_05_12_rain_nf1.csv",         "nf1", False, "may25_rain_tn"),
     # Standalone: actuator malfunction at botanical garden
     ("anomaly_2026_01_botanical_actuator.csv",  None,  True,  "jan26_actuator"),
-    # Baseline for the same sensor/location — must NOT be flagged
+    # Normal window for the same sensor/location — must NOT be flagged
+    # (file lives in data/normal/, not data/anomalies/)
     ("normal_2026_01_botanical_baseline.csv",   None,  False, "jan26_actuator_baseline"),
     # Standalone: fire-hydrant spill at north fork 0
     ("anomaly_2026_03_20_hydrant_nf0.csv",      "nf0", True,  "mar26_hydrant"),
@@ -211,8 +213,10 @@ def test_anomaly_detected(filename, station, group, trained_model, model_metadat
                               for f, s, a, g in EVENT_CATALOG if not a])
 def test_true_negative_not_flagged(filename, station, group, trained_model, model_metadata, edge_index):
     """Reconstruction error must remain flat for normal / rain events."""
+    # Normal (non-anomalous) files live in data/normal/; everything else in data/anomalies/
+    data_dir = NORMAL_DIR if filename.startswith("normal_") else ANOMALY_DIR
     errors = _reconstruction_errors(
-        ANOMALY_DIR / filename, station, trained_model, model_metadata, edge_index
+        data_dir / filename, station, trained_model, model_metadata, edge_index
     )
     assert not _is_elevated(errors), (
         f"[{group}] {filename}: expected no anomaly but peak error "

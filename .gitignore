@@ -15,6 +15,7 @@ data/processed/*.csv
 data/targets/*.csv
 *.csv
 !data/anomalies/*.csv
+!data/normal/*.csv
 *.ipynb_checkpoints
 
 # --- Model Weights & Logs --- #
