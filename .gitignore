@@ -15,7 +15,7 @@ venv/
 data/targets/*.csv
 *.csv
 !data/raw_data.csv
-!data/raw/
+!data/raw_data/*.csv
 !data/anomalies/*.csv
 !data/normal/*.csv
 *.ipynb_checkpoints
