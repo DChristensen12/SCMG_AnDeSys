@@ -10,8 +10,8 @@ venv/
 
 # --- Data & Large Files --- #
 # Ignore the actual data files (keep the structure, hide the content)
-data/raw/*.csv
-data/processed/*.csv
+#data/raw/*.csv
+#data/processed/*.csv
 data/targets/*.csv
 *.csv
 !data/anomalies/*.csv
