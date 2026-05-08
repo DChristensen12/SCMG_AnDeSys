@@ -3,25 +3,25 @@ import os
 import torch
 from dotenv import load_dotenv
 
-# Load sensitive environment variables from .env
+# Load in the sensitive environment variables from .env 
 load_dotenv()
 
 class Config:
-    # API and Sensitive Credentials (from .env)
+    # Grab SCMG API and Sensitive Credentials (from .env)
     API_TOKEN = os.getenv("SCMG_API_TOKEN")
     API_BASE_URL = os.getenv("SCMG_API_BASE_URL", "https://www.strawberrycreek.org/api/creek-data/")
 
-    # NWS Weather (replaces OpenWeather — no API key required, just a User-Agent)
+    # NWS Weather (Lawrence Berkeley National Lab Weather Data), this has no API key required, just a User-Agent)
     # Used to supplement the creek's own rain gauge with an independent measurement.
     # Set USE_NWS_RAIN=false in .env to disable.
     NWS_STATION_ID = os.getenv("NWS_STATION_ID", "LBNL1")
     NWS_USER_AGENT = os.getenv("NWS_USER_AGENT", "SCMG-AnDeSys/1.0")
     USE_NWS_RAIN   = os.getenv("USE_NWS_RAIN", "true").lower() == "true"
 
-    # SQL Database (optional — only needed when using --data-source sql)
+    # SQL Database (this is optional, it is only needed when using --data-source sql)
     SQL_CONNECTION_STRING = os.getenv("SQL_CONNECTION_STRING")
     SQL_TABLE_NAME        = os.getenv("SQL_TABLE_NAME", "creek_data")
-    # Column names in your SQL table — override these if your schema differs
+    # Column names in your SQL table, you should override these if your schema differs
     SQL_TIMESTAMP_COL     = os.getenv("SQL_TIMESTAMP_COL", "timestamp")
     SQL_LOCATION_COL      = os.getenv("SQL_LOCATION_COL", "station_id")
     SQL_CONDUCTIVITY_COL  = os.getenv("SQL_CONDUCTIVITY_COL", "Meter_Hydros21_Cond")

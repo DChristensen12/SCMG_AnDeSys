@@ -45,12 +45,12 @@ def detect_spills_with_rain_adjustment(
     """
     Rain-aware spill detection logic with adaptive thresholding.
     
-    Logic:
-    1. Identify 'Rain-Affected' periods using a lookback window.
-    2. Calculate a base threshold from the anomaly score distribution.
-    3. Scale the threshold up during rain to account for natural runoff noise.
+    How it works:
+    First, it'll identify 'Rain-Affected' periods using a lookback window.
+    Next, it'll calculate a base threshold from the anomaly score distribution.
+    Last, it'll scale the threshold up during rain to account for natural runoff noise.
     """
-    # If rain data is absent (column not present or all NaN), skip rain adjustment entirely.
+    # If rain data is absent (meaning if the column not present or all NaN), it'll skip rain adjustment entirely.
     if 'rain_mm' not in df_original.columns or df_original['rain_mm'].isna().all():
         print("[INFO] No rain_mm data available — running without rain adjustment.")
         base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
@@ -64,10 +64,10 @@ def detect_spills_with_rain_adjustment(
         print(f"-------------------------\n")
         return spill_flags, rain_flags, adjusted_thresholds
 
-    # Extract Rain Data (Using the first location as the weather reference)
+    # Extracting the Rain Data (Using the first location as the weather reference)
     rain_data = df_original[df_original['location'] == locations[0]][['rain_mm']].copy()
 
-    # Identify rain-affected periods (Vectorized approach where possible)
+    # Now identify rain-affected periods (Vectorized approach where possible)
     rain_flags = np.zeros(len(timestamps), dtype=bool)
     
     # We use a rolling window logic to see if it rained in the last X hours
