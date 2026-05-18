@@ -1,5 +1,5 @@
 """
-Flame_Skimmer — Temporal GNN with Bayesian (MC Dropout) prediction head.
+Flame_Skimmer -- Temporal GNN with Bayesian (MC Dropout) prediction head.
 
 Spatial: GCN/GAT per timestep (same as Dusk_Crayfish).
 Temporal: LSTM (same as Dusk_Crayfish).
@@ -22,13 +22,13 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.data import Data, Batch
-
 from config.config import Config
 
 
 class FlameSkimmer(nn.Module):
     """
-    Temporal GNN with MC Dropout uncertainty estimation.
+    Temporal GNN with MC Dropout uncertainty estimation. Name Inspired by the 
+    Flame Skimmer Dragonfly at strawberry creek (seen near northfork 1)
 
     forward(...) by default returns mean predictions (same shape as DuskCrayfish).
     Call forward(..., return_uncertainty=True) to also get the std-dev across

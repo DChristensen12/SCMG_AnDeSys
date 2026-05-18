@@ -1,5 +1,5 @@
 """
-Water_Strider — Temporal GNN with Transformer-based temporal modeling.
+Water_Strider -- Temporal GNN with Transformer-based temporal modeling.
 
 Spatial: GCN/GAT per timestep, mean-pool across nodes (same as Dusk_Crayfish).
 Temporal: Transformer encoder with sinusoidal positional encoding.
@@ -15,7 +15,6 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.data import Data, Batch
-
 from config.config import Config
 
 
@@ -43,6 +42,7 @@ class PositionalEncoding(nn.Module):
 class WaterStrider(nn.Module):
     """
     Same spatial backbone as DuskCrayfish, but Transformer encoder replaces LSTM.
+    Named after the Water Striders that live in Strawberry Creek!
     """
 
     def __init__(self, num_node_features):
