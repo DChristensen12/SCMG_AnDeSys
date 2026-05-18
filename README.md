@@ -52,3 +52,7 @@ python run_live.py
 * **Logs:** Standard output tracks API pings and model evaluation scores.
 
 ---
+
+<p align="center">
+  <img src="assets/SCMGBacklogo.png" width="400">
+</p>
