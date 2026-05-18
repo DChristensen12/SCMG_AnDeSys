@@ -88,7 +88,7 @@ def load_and_preprocess_data(
     print(f"Range: {df.index.min()} to {df.index.max()}")
 
     # Report which sites are present in the dataset and which are missing.
-    # Missing sites are normal — sensors can be down — but worth surfacing.
+    # Missing sites are normal (sensors can be down), but worth surfacing.
     sites_present = sorted(df["location"].unique()) if "location" in df.columns else []
     expected = set(Config.LOCATIONS)
     missing = sorted(expected - set(sites_present))

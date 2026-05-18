@@ -11,7 +11,6 @@ This produces:
 
 import pickle
 from pathlib import Path
-
 import numpy as np
 import pytest
 import torch
@@ -37,7 +36,7 @@ def model_metadata():
 def trained_model(model_metadata):
     import sys
     sys.path.insert(0, str(ROOT))
-    from src.models.model import TemporalGNN
+    from src.models.Dusk_Crayfish import DuskCrayfish
     from config.config import Config
 
     weights_path = MODEL_DIR / "gnn_weights.pt"
@@ -45,7 +44,7 @@ def trained_model(model_metadata):
         pytest.skip("No gnn_weights.pt found.")
 
     num_features = len(model_metadata["feature_cols"])
-    model = TemporalGNN(num_node_features=num_features).to(Config.DEVICE)
+    model = DuskCrayfish(num_node_features=num_features).to(Config.DEVICE)
     model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE))
     model.eval()
     return model

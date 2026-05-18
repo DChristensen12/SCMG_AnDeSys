@@ -129,7 +129,7 @@ def fetch_nws_weather(
     for col in [out for _, out, _ in _NWS_PROPERTIES]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Drop any column that's entirely null — at LBNL1 that's typically nothing
+    # Drop any column that's entirely null. At LBNL1 that's typically nothing
     # in this list, but at other stations (or after sensor failures) it cleans
     # up unusable features.
     null_cols = [c for c in df.columns if df[c].isna().all()]

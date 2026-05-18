@@ -76,7 +76,7 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
     """
 
     # Identify feature columns. Pull the exclude set from data_loader so the
-    # two stay in sync — when someone adds a new non-feature column, they
+    # two stay in sync. When someone adds a new non-feature column, they
     # only update _NON_FEATURE_COLUMNS in one place.
     exclude_cols = _NON_FEATURE_COLUMNS | {"location"}
     feature_cols = [
@@ -178,8 +178,7 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
 
         # Populate whichever nodes have data at this timestamp. Missing nodes
         # stay as NaN and are handled by the absent-pairs mechanism in
-        # is_valid_timestep below — they're zeroed rather than treated as
-        # "missing signal."
+        # is_valid_timestep below. They get zeroed rather than treated as missing signal.
         for _, row in t_data.iterrows():
             node_idx = location_to_idx[row["location"]]
             data_3d[t_idx, node_idx, :] = row[feature_cols].values

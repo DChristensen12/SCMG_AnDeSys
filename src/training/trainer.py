@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.amp import autocast, GradScaler
 from config.config import Config
 
+
 def train_temporal_gnn(
     model,
     train_sequences,
@@ -14,29 +15,34 @@ def train_temporal_gnn(
     batch_size=Config.BATCH_SIZE,
     learning_rate=Config.LEARNING_RATE,
     patience=Config.PATIENCE,
-    device=Config.DEVICE
+    device=Config.DEVICE,
 ):
     """
-    Train temporal GNN with mixed-precision acceleration.
+    Train temporal GNN. Uses mixed-precision acceleration on CUDA; falls back
+    to plain fp32 on CPU (autocast on CPU breaks oneDNN's LSTM kernel and gives
+    no speedup anyway since CPUs lack tensor cores).
+
     Learns baseline creek physics via reconstruction (MSE loss).
     """
     model = model.to(device)
     edge_index = edge_index.to(device)
-    device_type = 'cuda' if 'cuda' in str(device) else 'cpu'
+
+    device_type = "cuda" if "cuda" in str(device) else "cpu"
+    use_amp = device_type == "cuda"
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
-    scaler = GradScaler(device = device_type)
+    scaler = GradScaler(device_type) if use_amp else None
 
-    best_val_loss = float('inf')
+    best_val_loss = float("inf")
     best_model_state = None
     patience_counter = 0
-
     train_losses = []
     val_losses = []
 
-    print(f"--- Starting Training on {device_type.upper()} ---")
-    
+    print(f"--- Starting Training on {device_type.upper()} "
+          f"({'mixed-precision' if use_amp else 'fp32'}) ---")
+
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0
@@ -44,26 +50,33 @@ def train_temporal_gnn(
 
         # Mini-batch training
         for i in range(0, len(train_sequences), batch_size):
-            # Convert to tensors inside the loop to save GPU memory
             batch_seq = torch.FloatTensor(train_sequences[i:i+batch_size]).to(device)
             batch_target = torch.FloatTensor(train_targets[i:i+batch_size]).to(device)
 
             optimizer.zero_grad()
 
-            # Mixed precision forward pass
-            with autocast(device_type=device_type):
+            if use_amp:
+                with autocast(device_type=device_type):
+                    predictions = model(
+                        batch_seq,
+                        edge_index,
+                        batch_size=len(batch_seq),
+                        num_nodes=batch_seq.shape[2],
+                    )
+                    loss = criterion(predictions, batch_target)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
                 predictions = model(
                     batch_seq,
                     edge_index,
                     batch_size=len(batch_seq),
-                    num_nodes=batch_seq.shape[2]
+                    num_nodes=batch_seq.shape[2],
                 )
                 loss = criterion(predictions, batch_target)
-
-            # Mixed precision backward pass
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+                loss.backward()
+                optimizer.step()
 
             epoch_loss += loss.item()
             num_batches += 1
@@ -71,31 +84,38 @@ def train_temporal_gnn(
         avg_train_loss = epoch_loss / num_batches
         train_losses.append(avg_train_loss)
 
-        # Validation logic
+        # Validation
         if val_sequences is not None:
             model.eval()
-            with torch.no_grad(), autocast(device_type=device_type):
+            with torch.no_grad():
                 val_seq = torch.FloatTensor(val_sequences).to(device)
                 val_tgt = torch.FloatTensor(val_targets).to(device)
-
-                val_pred = model(
-                    val_seq,
-                    edge_index,
-                    batch_size=len(val_seq),
-                    num_nodes=val_seq.shape[2]
-                )
-
-                val_loss = criterion(val_pred, val_tgt).item()
-                val_losses.append(val_loss)
-
-                # Track best model and handle early stopping
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    best_model_state = model.state_dict().copy()
-                    patience_counter = 0
+                if use_amp:
+                    with autocast(device_type=device_type):
+                        val_pred = model(
+                            val_seq,
+                            edge_index,
+                            batch_size=len(val_seq),
+                            num_nodes=val_seq.shape[2],
+                        )
+                        val_loss = criterion(val_pred, val_tgt).item()
                 else:
-                    patience_counter += 1
+                    val_pred = model(
+                        val_seq,
+                        edge_index,
+                        batch_size=len(val_seq),
+                        num_nodes=val_seq.shape[2],
+                    )
+                    val_loss = criterion(val_pred, val_tgt).item()
+            val_losses.append(val_loss)
 
+            # Track best model for early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model_state = model.state_dict().copy()
+                patience_counter = 0
+            else:
+                patience_counter += 1
                 if patience_counter >= patience:
                     print(f"[STATUS] Early stopping triggered at epoch {epoch+1}")
                     break

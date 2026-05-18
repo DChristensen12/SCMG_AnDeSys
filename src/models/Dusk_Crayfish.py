@@ -4,14 +4,14 @@ from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.data import Data, Batch
 from config.config import Config
 
-class TemporalGNN(nn.Module):
+class DuskCrayfish(nn.Module):
     """
     Temporal Graph Neural Network for creek sensor time-series prediction.
     Combines spatial (GNN) and temporal (LSTM) feature extraction.
+    Named after the Crayfish that live in Strawberry Creek!
     """
-
     def __init__(self, num_node_features):
-        super(TemporalGNN, self).__init__()
+        super(DuskCrayfish, self).__init__()
 
         # Pull architecture settings directly from Config
         self.hidden_dim = Config.HIDDEN_DIM
@@ -80,7 +80,7 @@ class TemporalGNN(nn.Module):
             gnn_outputs.append(h_graph)
 
         # Temporal Processing
-        temporal_input = torch.stack(gnn_outputs, dim=1) # (batch_size, seq_len, hidden_dim)
+        temporal_input = torch.stack(gnn_outputs, dim=1).contiguous() # (batch_size, seq_len, hidden_dim)
         lstm_out, _ = self.lstm(temporal_input)
         
         # Take the last hidden state of the LSTM

@@ -27,7 +27,7 @@ class Config:
     # Only needed when running with --data-source sql.
     # Schema: one table per site (named after site_code, lowercased), columns
     # are managed dynamically by Night Heron's get_creek_data.py. The sql_client
-    # uses SHOW COLUMNS to discover what's available — no column overrides needed.
+    # uses SHOW COLUMNS to discover what's available, so no column overrides are needed.
     #
     # Variable names match Night Heron's .env so the same credentials work for both.
     MYSQL_HOST     = os.getenv("MYSQL_HOST")
@@ -77,6 +77,6 @@ class Config:
     LOCATIONS       = ["footbridge", "north_fork_0", "south_fork_2", "south_fork_1", "oxford"]
     LOCATION_TO_IDX = {loc: idx for idx, loc in enumerate(LOCATIONS)}
 
-    # NUM_FEATURES is not used anywhere — the model reads sequences.shape[3]
+    # NUM_FEATURES is not used anywhere; the model reads sequences.shape[3]
     # at runtime, which is the right thing. Leaving the line out intentionally;
     # if anything tries to import it, that's a stale reference to clean up.

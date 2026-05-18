@@ -43,14 +43,12 @@ def detect_spills_with_rain_adjustment(
     rain_amount_threshold=Config.RAIN_AMOUNT_THRESHOLD
 ):
     """
-    Rain-aware spill detection logic with adaptive thresholding.
-    
-    How it works:
-    First, it'll identify 'Rain-Affected' periods using a lookback window.
-    Next, it'll calculate a base threshold from the anomaly score distribution.
-    Last, it'll scale the threshold up during rain to account for natural runoff noise.
+    Rain-aware spill detection with adaptive thresholding.
+    Identifies rain-affected periods with a lookback window, calculates a base
+    threshold from the anomaly score distribution, then scales it up during rain
+    to reduce false positives from natural runoff.
     """
-    # If rain data is absent (meaning if the column not present or all NaN), it'll skip rain adjustment entirely.
+    # Skip rain adjustment if there's no rain_mm column or it's all NaN.
     if 'rain_mm' not in df_original.columns or df_original['rain_mm'].isna().all():
         print("[INFO] No rain_mm data available — running without rain adjustment.")
         base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
@@ -64,13 +62,12 @@ def detect_spills_with_rain_adjustment(
         print(f"-------------------------\n")
         return spill_flags, rain_flags, adjusted_thresholds
 
-    # Extracting the Rain Data (Using the first location as the weather reference)
+    # Use the first location as the weather reference for rain data
     rain_data = df_original[df_original['location'] == locations[0]][['rain_mm']].copy()
 
-    # Now identify rain-affected periods (Vectorized approach where possible)
+    # Flag each timestamp where it rained in the past rain_window_hours
     rain_flags = np.zeros(len(timestamps), dtype=bool)
-    
-    # We use a rolling window logic to see if it rained in the last X hours
+
     for i, ts in enumerate(timestamps):
         lookback_start = ts - pd.Timedelta(hours=rain_window_hours)
         recent_rain = rain_data[(rain_data.index >= lookback_start) & (rain_data.index <= ts)]
