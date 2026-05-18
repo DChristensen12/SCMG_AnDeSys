@@ -1,27 +1,43 @@
-import pandas as pd
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import pandas as pd
 from config.config import Config
 from src.ingest.api_client import fetch_network_snapshot
 
-def load_and_preprocess_data(file_path=Config.DATA_FILE, force_download=False, days=30, data_source="api"):
-    """
-    Loads creek data. If the local file is missing or force_download is True,
-    it fetches data from the configured source for the specified number of days.
 
-    data_source: "api" (default) pulls from the Strawberry Creek REST API.
-                 "sql" pulls from the SQL database configured in .env.
-    """
+# Columns that should never be treated as model features, even if numeric.
+# - EnviroDIY_Mayfly_Batt: sensor health telemetry, not a creek measurement
+# - Unnamed: 0, delta, Precip_Max: pandas/CSV artifacts from earlier exports
+_NON_FEATURE_COLUMNS = {
+    "Unnamed: 0",
+    "delta",
+    "Precip_Max",
+    "EnviroDIY_Mayfly_Batt",
+}
 
+
+def load_and_preprocess_data(
+    file_path=Config.DATA_FILE,
+    force_download=False,
+    days=30,
+    data_source="api",
+):
+    """
+    Load creek data, caching to CSV. Fetches fresh data when the cache is
+    missing or force_download=True.
+
+    data_source: "api" pulls from the public REST API (3 sensor features).
+                 "sql" pulls from the production MySQL database (richer features).
+    """
     if not os.path.exists(file_path) or force_download:
         source_label = "API" if data_source == "api" else "SQL database"
         if force_download:
-            print(f"Refresh requested. Fetching last {days} days of data from {source_label}...")
+            print(f"Refresh requested. Fetching last {days} days from {source_label}...")
         else:
-            print(f"Local file '{file_path}' not found. Initializing {source_label} pull...")
+            print(f"Local file '{file_path}' not found. Pulling from {source_label}...")
 
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
 
         if data_source == "sql":
@@ -42,98 +58,100 @@ def load_and_preprocess_data(file_path=Config.DATA_FILE, force_download=False, d
                 sys.exit(1)
             print("Falling back to existing local file.")
         else:
-            # Map raw source column names to the internal names used by the GNN.
-            # For the SQL path the sensor columns are already renamed by sql_client;
-            # only 'timestamp' -> 'datetime' and 'station_id' -> 'location' remain.
+            # Rename raw MMW column names to Pulse's internal names.
+            # Only sensors that the API/SQL paths actually expose are listed
+            # here; the API tier delivers 3 features (cond, depth, temp) plus
+            # battery. The SQL tier may deliver more — any extra columns just
+            # pass through with their raw names and get used as model features.
             column_mapping = {
-                'Meter_Hydros21_Cond': 'conductivity',
-                'Meter_Hydros21_Depth': 'depth',
-                'Meter_Hydros21_Temp': 'temperature',
-                'TE_TR_525USW_Precip_5minTotal': 'rain_mm',
-                'Sensirion_SHT40_Temperature': 'Temp2m_Avg',
-                'timestamp': 'datetime',
-                'station_id': 'location',
+                "Meter_Hydros21_Cond":  "conductivity",
+                "Meter_Hydros21_Depth": "depth",
+                "Meter_Hydros21_Temp":  "temperature",
+                "timestamp":            "datetime",
+                "station_id":           "location",
             }
-
             df_raw = df_raw.rename(columns=column_mapping)
 
-            if Config.USE_NWS_RAIN:
-                df_raw = _merge_nws_rain(df_raw, start_date, end_date)
+            if Config.USE_NWS_WEATHER:
+                df_raw = _merge_nws_weather(df_raw, start_date, end_date)
 
             df_raw.to_csv(file_path, index=False)
             print(f"Data successfully cached to {file_path}")
 
-    # Load from the cached or existing file
+    # ─── Load from cache and finalize ──────────────────────────────────────
     df = pd.read_csv(file_path)
-    
-    # Preprocessing and Indexing
-    df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
-    df = df.set_index('datetime').sort_index()
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+    df = df.set_index("datetime").sort_index()
 
     print(f"--- Data Loading Report ---")
     print(f"Rows: {df.shape[0]:,}")
     print(f"Range: {df.index.min()} to {df.index.max()}")
 
-    # Pass every numeric sensor column through — no hardcoded list.
-    # New parameters from the API or SQL are picked up automatically.
-    # Only 'rain_mm' and 'depth' carry semantic meaning downstream
-    # (rain-flag logic and absent-sensor detection); everything else is
-    # just a model feature and its name doesn't matter.
-    _non_feature = {'Unnamed: 0', 'delta', 'Precip_Max', 'EnviroDIY_Mayfly_Batt'}
+    # Report which sites are present in the dataset and which are missing.
+    # Missing sites are normal — sensors can be down — but worth surfacing.
+    sites_present = sorted(df["location"].unique()) if "location" in df.columns else []
+    expected = set(Config.LOCATIONS)
+    missing = sorted(expected - set(sites_present))
+    print(f"Sites present ({len(sites_present)}): {sites_present}")
+    if missing:
+        print(f"Sites missing (offline this window): {missing}")
+
+    # Feature selection: every numeric column that isn't location or in our
+    # exclude set. New columns from SQL or NWS get picked up automatically.
     feature_cols = [
         col for col in df.columns
-        if col != 'location'
-        and col not in _non_feature
+        if col != "location"
+        and col not in _NON_FEATURE_COLUMNS
         and pd.api.types.is_numeric_dtype(df[col])
     ]
-
     if not feature_cols:
         print("CRITICAL ERROR: No numeric feature columns found in dataset.")
         sys.exit(1)
 
-    df_featured = df[['location'] + feature_cols].copy()
+    df_featured = df[["location"] + feature_cols].copy()
 
     print(f"Active features ({len(feature_cols)}): {', '.join(feature_cols)}")
-    if 'rain_mm' not in feature_cols:
-        print("Warning: 'rain_mm' not found — rain-adjusted detection will be disabled.")
     print(f"---------------------------\n")
 
     return df_featured, df, Config.LOCATIONS
 
 
-def _merge_nws_rain(df_raw, start_date, end_date):
+def _merge_nws_weather(df_raw, start_date, end_date):
     """
-    Fetch NWS hourly precipitation for the same window and merge it into df_raw.
+    Fetch NWS weather observations and merge them onto the creek dataset
+    by hourly bucket. Each NWS feature (air_temp_c, dewpoint_c, humidity_pct,
+    wind_kmh, wind_dir_deg, wind_gust_kmh, pressure_hpa) becomes a new column.
 
-    Strategy: take max(creek_rain_mm, nws_rain_mm) at each timestamp so that
-    if the creek's tipping-bucket gauge fails or reads zero during a real storm,
-    the NWS reading fills the gap.  NWS values (hourly) are aligned by flooring
-    each creek timestamp to the nearest hour.
+    A creek observation at 14:23 picks up the NWS values from the 14:00 hour.
     """
-    from src.ingest.weather_client import fetch_nws_precipitation
+    from src.ingest.weather_client import fetch_nws_weather
 
-    print(f"Fetching NWS precipitation for station {Config.NWS_STATION_ID}...")
-    df_nws = fetch_nws_precipitation(start_date.isoformat(), end_date.isoformat())
+    print(f"Fetching NWS weather for station {Config.NWS_STATION_ID}...")
+    df_nws = fetch_nws_weather(start_date.isoformat(), end_date.isoformat())
 
     if df_nws.empty:
-        print("NWS rain data unavailable — using creek sensor rain only.")
+        print("NWS weather unavailable — proceeding without weather features.")
         return df_raw
 
-    # Align: floor each creek timestamp to the hour, then look up the NWS
-    # hourly observation for that hour (precipitationLastHour covers the
-    # preceding 60 minutes, so the 14:00 reading = rain from 13:00–14:00).
+    # Average NWS observations within each hour. LBNL1 reports every 15 min,
+    # so each hour bucket has ~4 observations; we collapse to one.
+    df_nws_hourly = df_nws.resample("h").mean()
+
+    # Build an hour-bucket key on the creek side and merge.
     creek_dt = pd.to_datetime(df_raw["datetime"], utc=True)
-    hourly_keys = creek_dt.dt.floor("h")
+    df_raw["_hour_key"] = creek_dt.dt.floor("h")
 
-    nws_lookup = df_nws["rain_mm"].fillna(0)
-    nws_per_row = hourly_keys.map(nws_lookup).fillna(0).values
+    df_merged = df_raw.merge(
+        df_nws_hourly,
+        how="left",
+        left_on="_hour_key",
+        right_index=True,
+    ).drop(columns=["_hour_key"])
 
-    creek_rain = pd.to_numeric(df_raw.get("rain_mm", 0), errors="coerce").fillna(0).values
-    df_raw["rain_mm"] = pd.Series(
-        [max(c, n) for c, n in zip(creek_rain, nws_per_row)],
-        index=df_raw.index,
+    n_with_weather = df_merged["air_temp_c"].notna().sum() if "air_temp_c" in df_merged.columns else 0
+    print(
+        f"NWS weather merged — {n_with_weather:,}/{len(df_merged):,} rows "
+        f"have weather context "
+        f"(features: {list(df_nws_hourly.columns)})"
     )
-
-    nws_contributed = int((nws_per_row > creek_rain).sum())
-    print(f"NWS rain merged — supplemented {nws_contributed} rows where creek gauge read lower.")
-    return df_raw
+    return df_merged

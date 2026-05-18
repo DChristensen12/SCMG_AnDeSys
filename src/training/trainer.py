@@ -26,7 +26,7 @@ def train_temporal_gnn(
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
-    scaler = GradScaler(device_type=device_type)
+    scaler = GradScaler(device = device_type)
 
     best_val_loss = float('inf')
     best_model_state = None

@@ -9,3 +9,4 @@ tqdm
 python-dotenv
 pyyaml
 requests
+mysql-connector-python>=8.0
