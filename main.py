@@ -9,14 +9,15 @@ from src.utils.graph_utils import create_graph_topology
 from src.preprocessing.data_processor import prepare_sequences_normalized
 from src.training.trainer import train_temporal_gnn
 from src.anomalies.anomaly_detector import compute_anomaly_scores, detect_spills_with_rain_adjustment
-from src.models.Dusk_Crayfish import DuskCrayfish
-# from src.models.Flame_Skimmer import FlameSkimmer    # not yet implemented
-# from src.models.Water_Strider import WaterStrider    # not yet implemented
+
 
 # ─── Model registry ──────────────────────────────────────────────────────────
 # Maps a short --model name to the class to instantiate. To add a new model:
 # implement the class in its own file under src/models/, import it here, and
 # add an entry to _MODEL_REGISTRY. Nothing else in main.py changes.
+from src.models.Dusk_Crayfish import DuskCrayfish
+# from src.models.Flame_Skimmer import FlameSkimmer    # not yet implemented
+# from src.models.Water_Strider import WaterStrider    # not yet implemented
 
 _MODEL_REGISTRY = {
     "dusk_crayfish":  DuskCrayfish,
@@ -24,12 +25,14 @@ _MODEL_REGISTRY = {
     # "water_strider": WaterStrider,
 }
 
+
 def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize=False):
     """
     Control logic for the GNN pipeline.
     """
     model_dir = "models"
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
+    metadata_path = os.path.join(model_dir, f"{model_name}_metadata.pkl")
 
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
@@ -98,9 +101,10 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         test_timestamps = timestamps[split_idx:]
 
     # ─── Train if needed ─────────────────────────────────────────────────────
+    trained_threshold = None
     if mode in ["train", "update"]:
         print("Commencing model optimization...")
-        train_temporal_gnn(
+        _, _, trained_threshold = train_temporal_gnn(
             model,
             train_seq,
             train_tgt,
@@ -111,12 +115,13 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         torch.save(model.state_dict(), model_path)
         print(f"Optimization complete. Weights saved to {model_path}")
 
-        metadata_path = os.path.join(model_dir, f"{model_name}_metadata.pkl")
         with open(metadata_path, "wb") as f:
             pickle.dump({
                 "scaler": scaler,
                 "feature_cols": feature_cols,
                 "location_to_idx": location_to_idx,
+                "threshold": trained_threshold,
+                "threshold_percentile": Config.THRESHOLD_PERCENTILE,
             }, f)
         print(f"Model metadata saved to {metadata_path}")
     else:
@@ -134,14 +139,39 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     system_scores = np.mean(errors, axis=(1, 2))
 
+    # ─── Resolve the spill threshold ─────────────────────────────────────────
+    # Order of preference:
+    #   1. The threshold we just computed this run (train/update modes).
+    #   2. The threshold saved in metadata from a previous training run.
+    #   3. Fallback: P99 of the current run's scores (OLD BUGGY BEHAVIOR).
+    #
+    # Path #3 only fires when no metadata exists, which usually means someone
+    # is running inference against a model trained before this fix. Warn so
+    # the issue is visible rather than silently producing meaningless results.
+    base_threshold = trained_threshold
+    if base_threshold is None and os.path.exists(metadata_path):
+        with open(metadata_path, "rb") as f:
+            saved_metadata = pickle.load(f)
+        base_threshold = saved_metadata.get("threshold")
+
+    if base_threshold is None:
+        print(
+            "[WARN] No trained threshold available — falling back to "
+            f"P{Config.THRESHOLD_PERCENTILE} of current run's scores. "
+            "This is the OLD buggy behavior; retrain to get a stable threshold."
+        )
+        base_threshold = np.percentile(system_scores, Config.THRESHOLD_PERCENTILE)
+    else:
+        print(f"[INFO] Using trained threshold: {base_threshold:.6f}")
+
     spill_flags, rain_flags, adjusted_thresholds = detect_spills_with_rain_adjustment(
         system_anomaly_scores=system_scores,
         timestamps=test_timestamps,
         df_original=df_original,
         locations=locations,
+        base_threshold=base_threshold,
     )
 
-    base_threshold = np.percentile(system_scores, Config.THRESHOLD_PERCENTILE)
     spill_count = np.sum(spill_flags)
     print(f"Detection cycle finished. Anomalies identified: {spill_count}")
 

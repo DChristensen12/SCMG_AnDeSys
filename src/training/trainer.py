@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.amp import autocast, GradScaler
@@ -132,5 +133,39 @@ def train_temporal_gnn(
         model.load_state_dict(best_model_state)
         print(f"[INFO] Restored model weights from epoch with Val Loss: {best_val_loss:.6f}")
 
+    # ─── Compute the spill threshold from validation errors ────────────────
+    # We use the validation set (held-out, never trained on) to define what
+    # "normal" prediction error looks like. Anything beyond the Nth percentile
+    # of validation errors is considered anomalous at inference time.
+    #
+    # This is computed once during training and saved to model metadata.
+    # Critically: it does NOT recompute at inference time, which is what
+    # makes the threshold a stable, meaningful definition of anomalous
+    # rather than "the top 1% of whatever data we happened to see this run."
+    threshold = None
+    if val_sequences is not None:
+        from config.config import Config as _Config
+        model.eval()
+        with torch.no_grad():
+            val_seq = torch.FloatTensor(val_sequences).to(device)
+            val_tgt = torch.FloatTensor(val_targets).to(device)
+            val_pred = model(
+                val_seq,
+                edge_index,
+                batch_size=len(val_seq),
+                num_nodes=val_seq.shape[2],
+            )
+            val_errors = (val_pred - val_tgt).abs().cpu().numpy()
+            # Match the system-level aggregation used in anomaly_detector:
+            # mean across nodes and features → one score per timestep.
+            system_scores = val_errors.mean(axis=(1, 2))
+            threshold = float(
+                np.percentile(system_scores, _Config.THRESHOLD_PERCENTILE)
+            )
+        print(
+            f"[INFO] Computed spill threshold from validation set: "
+            f"{threshold:.6f} (P{_Config.THRESHOLD_PERCENTILE})"
+        )
+
     print("--- Training Complete ---\n")
-    return train_losses, val_losses
+    return train_losses, val_losses, threshold

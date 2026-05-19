@@ -3,10 +3,10 @@ import pandas as pd
 import torch
 from config.config import Config
 
+
 def compute_anomaly_scores(model, sequences, targets, edge_index, device):
     """
     Compute reconstruction errors (anomaly scores) for sequences.
-    
     Returns:
         errors: np.ndarray (absolute prediction error per sensor per feature)
         predictions: np.ndarray (raw model outputs)
@@ -32,11 +32,13 @@ def compute_anomaly_scores(model, sequences, targets, edge_index, device):
 
     return errors.cpu().numpy(), predictions.cpu().numpy()
 
+
 def detect_spills_with_rain_adjustment(
     system_anomaly_scores,
     timestamps,
     df_original,
     locations,
+    base_threshold=None,
     threshold_percentile=Config.THRESHOLD_PERCENTILE,
     rain_window_hours=Config.RAIN_WINDOW_HOURS,
     rain_threshold_multiplier=Config.RAIN_THRESHOLD_MULTIPLIER,
@@ -44,22 +46,39 @@ def detect_spills_with_rain_adjustment(
 ):
     """
     Rain-aware spill detection with adaptive thresholding.
-    Identifies rain-affected periods with a lookback window, calculates a base
-    threshold from the anomaly score distribution, then scales it up during rain
-    to reduce false positives from natural runoff.
+
+    Identifies rain-affected periods with a lookback window, applies a base
+    threshold, then scales it up during rain to reduce false positives from
+    natural runoff.
+
+    If base_threshold is provided (from training metadata), it's used directly.
+    Otherwise falls back to computing it from the current run's scores — this
+    is the OLD buggy behavior where ~1% of any window gets flagged by definition.
+    Always prefer passing a threshold computed at training time.
     """
+    # Resolve the threshold. The trained value (passed in) is the right answer;
+    # recomputing on the current run is a fallback that warns loudly.
+    if base_threshold is None:
+        print(
+            f"[WARN] No trained threshold passed in — falling back to "
+            f"P{threshold_percentile} of current run's scores. "
+            "This is the OLD buggy behavior; retrain to get a stable threshold."
+        )
+        base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
+
     # Skip rain adjustment if there's no rain_mm column or it's all NaN.
     if 'rain_mm' not in df_original.columns or df_original['rain_mm'].isna().all():
         print("[INFO] No rain_mm data available — running without rain adjustment.")
-        base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
         adjusted_thresholds = np.full(len(timestamps), base_threshold)
         spill_flags = system_anomaly_scores > adjusted_thresholds
         rain_flags = np.zeros(len(timestamps), dtype=bool)
+
         print(f"--- Detection Summary ---")
         print(f"Total Spills Detected: {spill_flags.sum()}")
         print(f"Rain-Affected Spills: 0 (no rain data)")
         print(f"Dry-Weather Spills: {spill_flags.sum()}")
         print(f"-------------------------\n")
+
         return spill_flags, rain_flags, adjusted_thresholds
 
     # Use the first location as the weather reference for rain data
@@ -67,17 +86,12 @@ def detect_spills_with_rain_adjustment(
 
     # Flag each timestamp where it rained in the past rain_window_hours
     rain_flags = np.zeros(len(timestamps), dtype=bool)
-
     for i, ts in enumerate(timestamps):
         lookback_start = ts - pd.Timedelta(hours=rain_window_hours)
         recent_rain = rain_data[(rain_data.index >= lookback_start) & (rain_data.index <= ts)]
-        
         if recent_rain['rain_mm'].sum() > rain_amount_threshold:
             rain_flags[i] = True
 
-    # Calculate Adaptive Thresholds
-    base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
-    
     # Apply the multiplier only where rain_flags is True
     adjusted_thresholds = np.where(
         rain_flags,
@@ -87,7 +101,7 @@ def detect_spills_with_rain_adjustment(
 
     # Generate Spill Flags
     spill_flags = system_anomaly_scores > adjusted_thresholds
-    
+
     # Summary Logging
     print(f"--- Detection Summary ---")
     print(f"Total Spills Detected: {spill_flags.sum()}")
