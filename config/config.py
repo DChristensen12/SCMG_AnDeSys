@@ -72,10 +72,13 @@ class Config:
 
     # ─── Constants ──────────────────────────────────────────────────────────
     SEQUENCE_LENGTH = 24
-    DATA_FILE       = "full_creek_gnn.csv"
+    DATA_FILE       = "data/processed_data/full_creek_gnn.csv"
     DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     LOCATIONS       = ["footbridge", "north_fork_0", "south_fork_2", "south_fork_1", "oxford"]
     LOCATION_TO_IDX = {loc: idx for idx, loc in enumerate(LOCATIONS)}
+    # How many days of recent data to retain in the local CSV cache.
+    # Fetches are merged into this rolling window; older rows are trimmed.
+    ROLLING_WINDOW_DAYS = int(os.getenv("ROLLING_WINDOW_DAYS", "90"))
 
     # NUM_FEATURES is not used anywhere; the model reads sequences.shape[3]
     # at runtime, which is the right thing. Leaving the line out intentionally;

@@ -1,7 +1,9 @@
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+
 import pandas as pd
+
 from config.config import Config
 from src.ingest.api_client import fetch_network_snapshot
 
@@ -26,6 +28,12 @@ def load_and_preprocess_data(
     """
     Load creek data, caching to CSV. Fetches fresh data when the cache is
     missing or force_download=True.
+
+    The cache is a rolling window: new fetches are merged with existing data
+    rather than overwriting it, then dedupliciated on (datetime, location)
+    and trimmed to Config.ROLLING_WINDOW_DAYS. This means the on-disk file
+    becomes a usable working set for debugging, offline analysis, and
+    --mode update retrains, while staying bounded in size.
 
     data_source: "api" pulls from the public REST API (3 sensor features).
                  "sql" pulls from the production MySQL database (richer features).
@@ -75,8 +83,15 @@ def load_and_preprocess_data(
             if Config.USE_NWS_WEATHER:
                 df_raw = _merge_nws_weather(df_raw, start_date, end_date)
 
-            df_raw.to_csv(file_path, index=False)
-            print(f"Data successfully cached to {file_path}")
+            # ─── Append to rolling cache ─────────────────────────────────
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            combined = _merge_with_cache(df_raw, file_path)
+            combined = _trim_to_rolling_window(combined, Config.ROLLING_WINDOW_DAYS)
+            combined.to_csv(file_path, index=False)
+            print(
+                f"Cache updated: {len(combined):,} rows on disk "
+                f"({combined['datetime'].min()} → {combined['datetime'].max()})"
+            )
 
     # ─── Load from cache and finalize ──────────────────────────────────────
     df = pd.read_csv(file_path)
@@ -114,6 +129,59 @@ def load_and_preprocess_data(
     print(f"---------------------------\n")
 
     return df_featured, df, Config.LOCATIONS
+
+
+def _merge_with_cache(df_new, file_path):
+    """
+    Combine freshly-fetched data with whatever's already in the cache file,
+    deduplicating on (datetime, location). Newer rows win on conflict — this
+    lets late-arriving data correct earlier values if the upstream system
+    backfilled or recomputed something.
+    """
+    if not os.path.exists(file_path):
+        return df_new
+
+    try:
+        existing = pd.read_csv(file_path)
+        existing["datetime"] = pd.to_datetime(existing["datetime"], utc=True)
+    except Exception as e:
+        # Cache file is corrupted or has incompatible schema. Don't crash —
+        # just start fresh with the new data. The old file gets overwritten.
+        print(f"[WARN] Could not read existing cache ({e}). Starting fresh.")
+        return df_new
+
+    # Ensure schema compatibility. If columns drifted (e.g. you added a new
+    # weather feature), the union of columns gets used and missing values
+    # become NaN — pandas handles this fine.
+    combined = pd.concat([existing, df_new], ignore_index=True)
+    combined["datetime"] = pd.to_datetime(combined["datetime"], utc=True)
+
+    # Dedupe: keep the most recent version of each (datetime, location) row.
+    # 'keep="last"' relies on df_new having been concatenated after existing.
+    combined = combined.drop_duplicates(
+        subset=["datetime", "location"], keep="last"
+    )
+    combined = combined.sort_values("datetime").reset_index(drop=True)
+    return combined
+
+
+def _trim_to_rolling_window(df, window_days):
+    """
+    Keep only the last `window_days` of data. Anchored on the latest timestamp
+    in the dataset (not 'now'), so the cache stays useful even if a fetch
+    happens long after the last real observation.
+    """
+    if df.empty or window_days is None or window_days <= 0:
+        return df
+
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+    cutoff = df["datetime"].max() - pd.Timedelta(days=window_days)
+    trimmed = df[df["datetime"] >= cutoff]
+
+    dropped = len(df) - len(trimmed)
+    if dropped > 0:
+        print(f"Trimmed {dropped:,} rows older than {window_days} days.")
+    return trimmed
 
 
 def _merge_nws_weather(df_raw, start_date, end_date):

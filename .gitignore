@@ -13,6 +13,7 @@ venv/
 #data/raw/*.csv
 #data/processed/*.csv
 data/targets/*.csv
+data/processed_data/
 *.csv
 !data/raw_data.csv
 !data/raw_data/*.csv
