@@ -8,7 +8,7 @@
 ## Overview
 This repository contains the Strawberry Creek anomaly detection pipeline. It uses a Temporal Graph Neural Network that models the creek as a directed flow graph, 5 sensor nodes connected by the physical direction of water, and learns what normal conditions look like via reconstruction. Anomalies are flagged when the model's prediction error spikes past a threshold that adjusts upward during rain events to reduce false positives from natural runoff.
 
-The live model being used right now in the registry is **DuskCrayfish**: a GCN spatial layer followed by an LSTM temporal layer, named after the crayfish that live in Strawberry Creek.
+The live model being used right now in the registry is **DuskCrayfish**: a Graph Convolutional Network spatial layer followed by an Long Short-Term Memory temporal layer, named after the crayfish that live in Strawberry Creek.
 
 ## How to use the Anomaly Detection System:
 
